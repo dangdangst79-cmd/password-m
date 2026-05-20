@@ -16,16 +16,16 @@ from crypto_util import encrypt_password, decrypt_password
 st.set_page_config(page_title="나만의 비밀번호 관리자", page_icon="🔐", layout="centered")
 
 st.title("🔐 나만의 안전한 비밀번호 관리자")
-st.caption("수정 및 삭제 시 마스터 비밀번호 재인증을 요구하여 보안성을 극대화했습니다.")
+st.caption("📁 폴더/카테고리 분류 기능이 추가되어 서랍 정리하듯 깔끔하게 관리할 수 있습니다.")
 st.markdown("---")
 
-# Supabase 연결 설정 (본인의 정보 유지)
+# Supabase 연결 설정 (스트림릿 클라우드 보안 금고 연동)
 base_url = "https://tntjmtyomhnlheyskgvi.supabase.co"
-# 기존 코드: api_key = "블라블라내비밀키"
-# 변경할 코드: 스트림릿 비밀 금고에서 키를 꺼내오도록 수정
-api_key = st.secrets["SUPABASE_KEY"]
+try:
+    final_key = st.secrets["SUPABASE_KEY"].strip()
+except Exception:
+    final_key = st.secrets["SUPABASE_KEY"].strip()
 
-final_key = api_key.strip()
 headers = {
     "apikey": final_key,
     "Authorization": f"Bearer {final_key}",
@@ -67,10 +67,8 @@ if not is_registered:
         reg_btn = st.form_submit_button("🔑 마스터 비밀번호 등록 및 시작")
         
         if reg_btn:
-            if not reg_pw:
-                st.error("비밀번호를 입력해 주세요.")
-            elif reg_pw != reg_pw_confirm:
-                st.error("두 비밀번호가 일치하지 않습니다.")
+            if not reg_pw or reg_pw != reg_pw_confirm:
+                st.error("비밀번호 입력을 확인해 주세요.")
             else:
                 hashed = hash_password(reg_pw)
                 with httpx.Client(headers=headers) as client:
@@ -78,8 +76,6 @@ if not is_registered:
                     if sub_res.status_code == 201:
                         st.success("🎉 성공적으로 등록되었습니다! 새로고침(F5)을 눌러주세요.")
                         st.rerun()
-                    else:
-                        st.error("등록 실패")
 
 else:
     st.sidebar.header("🔑 인증 센터")
@@ -122,14 +118,20 @@ else:
                                 st.sidebar.error(f"오류: {e}")
 
         # -----------------------------------------------------------------
-        # 🔒 [메인 화면] 기능 구현
+        # 🔒 [메인 화면] 탭 구성
         # -----------------------------------------------------------------
         tab1, tab2 = st.tabs(["➕ 새 비밀번호 등록", "📋 내 비밀번호 목록"])
+
+        # 📂 카테고리(폴더) 기본 목록 구성
+        category_options = ["기타/기본", "개인 사이트", "업무/유치원", "금융/은행", "가족/공용"]
 
         # [TAB 1] 새 비밀번호 등록
         with tab1:
             st.subheader("새로운 계정 정보 추가")
             with st.form("add_form", clear_on_submit=True):
+                # 💡 [폴더 기능 추가] 저장할 카테고리 폴더 지정 선택 상자
+                selected_category = st.selectbox("📂 보관할 폴더(카테고리) 선택", category_options)
+                
                 site_name = st.text_input("사이트 이름 (예: 네이버, 구글, 댕댕쓰 관리자)")
                 site_url = st.text_input("사이트 주소 (선택 사항)")
                 login_id = st.text_input("로그인 아이디(ID)")
@@ -143,22 +145,27 @@ else:
                         st.warning("사이트 이름, 아이디, 비밀번호는 필수 입력 항목입니다!")
                     else:
                         encrypted_pw = encrypt_password(login_pw, input_pw)
+                        
+                        # 💡 기존 구조를 해치지 않기 위해 메모란의 맨 앞에 [카테고리] 머리말을 붙여 숨겨 저장합니다.
+                        full_memo = f"[{selected_category}] {memo}".strip()
+                        
                         payload = {
                             "site_name": site_name,
                             "site_url": site_url,
                             "login_id": login_id,
                             "encrypted_password": encrypted_pw,
-                            "memo": memo
+                            "memo": full_memo
                         }
                         with httpx.Client(headers=headers) as client:
                             res = client.post(passwords_url, json=payload)
                             if res.status_code == 201:
-                                st.success(f"🎉 '{site_name}' 계정 정보가 암호화되어 보관되었습니다!")
+                                st.success(f"🎉 '{site_name}' 정보가 {selected_category} 폴더에 안전하게 보관되었습니다!")
                                 st.rerun()
 
-        # [TAB 2] 내 비밀번호 목록 조회 (수정/삭제 기능 탑재)
+        # [TAB 2] 내 비밀번호 목록 조회 (📁 폴더 정렬 및 🔍 통합 검색 탑재)
         with tab2:
             st.subheader("보관된 비밀번호 목록")
+            
             with httpx.Client(headers=headers) as client:
                 res = client.get(passwords_url)
                 if res.status_code == 200:
@@ -166,80 +173,108 @@ else:
                     if not data:
                         st.write("아직 저장된 비밀번호가 없습니다.")
                     else:
-                        st.write(f"현재 총 **{len(data)}개**의 계정이 보관 중입니다.")
+                        # 💡 [폴더 분류 UI] 라디오 버튼이나 셀렉트박스로 현재 볼 폴더 선택 가능
+                        folder_view = st.radio("📁 열어볼 폴더를 선택하세요", ["📂 전체 보기"] + [f"📁 {cat}" for cat in category_options], horizontal=True)
+                        
+                        # 🔍 검색창 UI 배치
+                        search_keyword = st.text_input("🔍 이 폴더 내에서 검색 (사이트명, ID, 메모 입력)", "").strip().lower()
+                        
+                        filtered_data = []
+                        for item in data:
+                            raw_memo = item['memo'] if item['memo'] else ""
+                            
+                            # 데이터에 담긴 카테고리 정보 분석 추출하기
+                            item_category = "기타/기본"
+                            clean_memo = raw_memo
+                            for cat in category_options:
+                                if raw_memo.startswith(f"[{cat}]"):
+                                    item_category = cat
+                                    clean_memo = raw_memo.replace(f"[{cat}]", "").strip() # 화면에는 머리말 떼고 이쁘게 출력
+                                    break
+                            
+                            # 1단계 차단: 내가 선택한 폴더의 데이터가 아니면 패스 (전체 보기일 때는 통과)
+                            if folder_view != "📂 전체 보기" and f"📁 {item_category}" != folder_view:
+                                continue
+                                
+                            # 2단계 차단: 검색 키워드 매칭 검사
+                            s_name = item['site_name'].lower() if item['site_name'] else ""
+                            l_id = item['login_id'].lower() if item['login_id'] else ""
+                            s_memo = clean_memo.lower()
+                            
+                            if search_keyword in s_name or search_keyword in l_id or search_keyword in s_memo:
+                                # 수정창 등에서 메모 란이 꼬이지 않도록 파싱된 순수 메모를 보관해 둠
+                                item['parsed_memo'] = clean_memo
+                                item['extracted_category'] = item_category
+                                filtered_data.append(item)
+                        
+                        st.write(f"현재 폴더 내 결과: 총 **{len(filtered_data)}개**의 계정")
                         st.markdown("---")
                         
-                        for idx, item in enumerate(data):
-                            # 각 계정 정보를 접이식 상자(Expander)로 구현
-                            with st.expander(f"🌐 {item['site_name']} ({item['login_id']})"):
+                        # 폴더 및 키워드로 걸러진 최종 알짜배기 데이터만 화면에 출력
+                        for idx, item in enumerate(filtered_data):
+                            with st.expander(f"🌐 [{item['extracted_category']}] {item['site_name']} ({item['login_id']})"):
                                 st.write(f"**사이트 주소:** {item['site_url'] if item['site_url'] else '없음'}")
                                 st.write(f"**아이디:** `{item['login_id']}`")
                                 
                                 decrypted_pw = decrypt_password(item['encrypted_password'], input_pw)
                                 st.success(f"🔓 **실제 비밀번호:** **{decrypted_pw}**")
-                                if item['memo']:
-                                    st.write(f"📝 **메모:** {item['memo']}")
+                                if item['parsed_memo']:
+                                    st.write(f"📝 **메모:** {item['parsed_memo']}")
                                 
                                 st.markdown("---")
-                                
-                                # 🛠️ 핵심 기능: 수정 및 삭제 서브 창 구성
                                 col1, col2 = st.columns(2)
                                 
-                                # [수정하기 서브 창]
+                                # [수정하기]
                                 with col1:
                                     with st.popover("✏️ 정보 수정하기"):
-                                        st.write("📝 **수정할 내용을 입력하세요**")
+                                        # 수정할 때도 카테고리 폴더를 변경할 수 있도록 구성
+                                        edit_category = st.selectbox("📂 이동할 폴더 선택", category_options, index=category_options.index(item['extracted_category']), key=f"edit_cat_{idx}")
                                         edit_site_name = st.text_input("사이트 이름", value=item['site_name'], key=f"edit_site_{idx}")
                                         edit_site_url = st.text_input("사이트 주소", value=item['site_url'] if item['site_url'] else "", key=f"edit_url_{idx}")
                                         edit_id = st.text_input("아이디", value=item['login_id'], key=f"edit_id_{idx}")
                                         edit_pw = st.text_input("새 비밀번호 (비워두면 기존 유지)", type="password", key=f"edit_pw_{idx}")
-                                        edit_memo = st.text_area("메모", value=item['memo'] if item['memo'] else "", key=f"edit_memo_{idx}")
+                                        edit_memo = st.text_area("메모", value=item['parsed_memo'], key=f"edit_memo_{idx}")
                                         
                                         st.markdown("---")
-                                        # 🔐 보안 검증 장치
                                         edit_auth = st.text_input("⚠️ 인증: 마스터 비밀번호 입력", type="password", key=f"edit_auth_{idx}")
                                         edit_submit = st.button("💾 수정사항 저장", key=f"edit_btn_{idx}")
                                         
                                         if edit_submit:
                                             if hash_password(edit_auth) != existing_hash:
-                                                st.error("❌ 마스터 비밀번호가 틀려 수정할 수 없습니다.")
+                                                st.error("❌ 비밀번호 불일치")
                                             else:
-                                                # 비밀번호를 새로 바꾼 경우엔 새로 암호화, 아니면 기존 암호문 그대로 사용
                                                 final_encrypted = encrypt_password(edit_pw, edit_auth) if edit_pw else item['encrypted_password']
+                                                # 수정 저장 시에도 카테고리 머리말을 이쁘게 말아서 저장
+                                                updated_full_memo = f"[{edit_category}] {edit_memo}".strip()
                                                 
                                                 update_payload = {
                                                     "site_name": edit_site_name,
                                                     "site_url": edit_site_url,
                                                     "login_id": edit_id,
                                                     "encrypted_password": final_encrypted,
-                                                    "memo": edit_memo
+                                                    "memo": updated_full_memo
                                                 }
                                                 with httpx.Client(headers=headers) as client:
                                                     up_res = client.patch(f"{passwords_url}?id=eq.{item['id']}", json=update_payload)
                                                     if up_res.status_code in [200, 204]:
-                                                        st.success("🎉 정보가 안전하게 수정되었습니다!")
+                                                        st.success("🎉 수정 완료!")
                                                         st.rerun()
-                                                    else:
-                                                        st.error("수정 실패")
                                 
-                                # [삭제하기 서브 창]
+                                # [삭제하기]
                                 with col2:
                                     with st.popover("🗑️ 정보 삭제하기"):
-                                        st.write("⚠️ **정말 이 정보를 데이터베이스에서 영구 삭제하시겠습니까?**")
-                                        # 🔐 보안 검증 장치
+                                        st.write("⚠️ 정말 영구 삭제하시겠습니까?")
                                         delete_auth = st.text_input("⚠️ 인증: 마스터 비밀번호 입력", type="password", key=f"del_auth_{idx}")
                                         delete_submit = st.button("🔥 영구 삭제 실행", key=f"del_btn_{idx}")
                                         
                                         if delete_submit:
                                             if hash_password(delete_auth) != existing_hash:
-                                                st.error("❌ 마스터 비밀번호가 틀려 삭제할 수 없습니다.")
+                                                st.error("❌ 비밀번호 불일치")
                                             else:
                                                 with httpx.Client(headers=headers) as client:
                                                     del_res = client.delete(f"{passwords_url}?id=eq.{item['id']}")
                                                     if del_res.status_code in [200, 204]:
-                                                        st.success("🗑️ 계정 정보가 깨끗하게 삭제되었습니다.")
+                                                        st.success("🗑️ 삭제 완료!")
                                                         st.rerun()
-                                                    else:
-                                                        st.error("삭제 실패")
                 else:
                     st.error("데이터 로드 실패")
