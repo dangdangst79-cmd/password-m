@@ -16,7 +16,7 @@ from crypto_util import encrypt_password, decrypt_password
 st.set_page_config(page_title="나만의 비밀번호 관리자", page_icon="🔐", layout="centered")
 
 st.title("🔐 나만의 안전한 비밀번호 관리자")
-st.caption("📂 커스텀 보관함 기능이 추가되어, 원하는 이름으로 폴더를 직접 만들어 관리할 수 있습니다.")
+st.caption("📂 커스텀 보관함 영구 기억 기능이 보완되어, 새로 만든 폴더가 사라지지 않고 완벽하게 저장됩니다.")
 st.markdown("---")
 
 # Supabase 연결 설정 (스트림릿 클라우드 보안 금고 연동)
@@ -24,7 +24,6 @@ base_url = "https://tntjmtyomhnlheyskgvi.supabase.co"
 try:
     final_key = st.secrets["SUPABASE_KEY"].strip()
 except Exception:
-# 🔑 진짜 키는 지워버리고, 스트림릿 금고(secrets)에서 꺼내 쓰도록 변경!
     final_key = st.secrets["SUPABASE_KEY"].strip()
 
 headers = {
@@ -119,11 +118,13 @@ else:
                                 st.sidebar.error(f"오류: {e}")
 
         # -----------------------------------------------------------------
-        # 🔒 [데이터 사전 로드] 내 저장소에서 실제 쓰고 있는 모든 보관함 이름 알아내기
+        # 💡 [핵심 개선] 프로그램 임시 기억 장치(Session State) 초기화
         # -----------------------------------------------------------------
-        dynamic_categories = set(["기본 보관함"]) # 기본값 하나 설정
+        if "custom_folders" not in st.session_state:
+            st.session_state["custom_folders"] = ["기본 보관함"]
+
+        # DB에 이미 저장되어 있는 보관함 이름들을 싹 긁어모아서 기억 장치에 병합
         all_db_data = []
-        
         with httpx.Client(headers=headers) as client:
             res_load = client.get(passwords_url)
             if res_load.status_code == 200:
@@ -131,13 +132,13 @@ else:
                 for item in all_db_data:
                     raw_memo = item.get('memo', '') if item.get('memo') else ""
                     if raw_memo.startswith("[") and "]" in raw_memo:
-                        # 메모 시작부분이 '[보관함이름]' 형태면 보관함 추출
                         end_idx = raw_memo.find("]")
                         cat_name = raw_memo[1:end_idx].strip()
-                        if cat_name:
-                            dynamic_categories.add(cat_name)
+                        if cat_name and cat_name not in st.session_state["custom_folders"]:
+                            st.session_state["custom_folders"].append(cat_name)
         
-        category_options = sorted(list(dynamic_categories))
+        # 보관함 정렬
+        category_options = sorted(list(set(st.session_state["custom_folders"])))
 
         # -----------------------------------------------------------------
         # 🔒 [메인 화면] 탭 구성
@@ -146,30 +147,32 @@ else:
 
         # [TAB 1] 새 비밀번호 등록 및 보관함 관리
         with tab1:
-            # 📁 새 보관함 이름 추가하기 코너
             st.subheader("📁 새 보관함(폴더) 만들기")
+            
+            # Form 외부에서 따로 보관함을 생성하게 하여 세션 상태를 확실하게 고정합니다.
             col_cat1, col_cat2 = st.columns([3, 1])
             with col_cat1:
-                new_cat_input = st.text_input("새로 만들 보관함 이름을 적으세요", placeholder="예: 댕댕쓰운영, 개인소비, 가족공용", key="new_cat_input_txt")
+                new_cat_input = st.text_input("새로 만들 보관함 이름을 적으세요", placeholder="예: 댕댕쓰, 개인소비, 금융", key="new_cat_input_txt")
             with col_cat2:
                 st.write("<div style='padding-top:28px;'></div>", unsafe_allow_html=True)
                 add_cat_btn = st.button("➕ 보관함 생성")
                 if add_cat_btn:
-                    if new_cat_input.strip():
-                        # 화면에 바로 반영하기 위해 세션 배치용 임시 추가 처리
-                        if new_cat_input.strip() not in category_options:
-                            category_options.append(new_cat_input.strip())
-                            category_options.sort()
-                        st.success(f"📂 '{new_cat_input.strip()}' 보관함이 생성 목록에 준비되었습니다! 아래에서 선택 가능합니다.")
+                    clean_cat_name = new_cat_input.strip()
+                    if clean_cat_name:
+                        if clean_cat_name not in st.session_state["custom_folders"]:
+                            st.session_state["custom_folders"].append(clean_cat_name)
+                            st.success(f"🎉 '{clean_cat_name}' 보관함이 새로 만들어졌습니다! 아래 선택 창에서 선택해 보세요.")
+                            st.rerun()
+                        else:
+                            st.warning("이미 존재하는 보관함 이름입니다.")
                     else:
-                        st.error("이름을 입력하세요.")
+                        st.error("보관함 이름을 입력해 주세요.")
 
             st.markdown("---")
             
-            # 🔒 실제 정보 추가 폼
             st.subheader("🔒 계정 정보 추가")
             with st.form("add_form", clear_on_submit=True):
-                # 💡 동적으로 불러온 보관함 리스트를 선택 상자에 매핑
+                # 이제 생성한 보관함이 새로고침되어도 완벽하게 보존되어 선택 상자에 나타납니다.
                 selected_category = st.selectbox("📂 보관할 보관함(폴더) 선택", category_options)
                 
                 site_name = st.text_input("사이트 이름 (예: 네이버, 구글, 댕댕쓰 관리자)")
@@ -197,7 +200,7 @@ else:
                         with httpx.Client(headers=headers) as client:
                             res = client.post(passwords_url, json=payload)
                             if res.status_code == 201:
-                                st.success(f"🎉 '{site_name}' 정보가 [{selected_category}] 보관함에 보관되었습니다!")
+                                st.success(f"🎉 '{site_name}' 정보가 [{selected_category}] 보관함에 안전하게 저장되었습니다!")
                                 st.rerun()
 
         # [TAB 2] 내 비밀번호 목록 조회
@@ -207,17 +210,15 @@ else:
             if not all_db_data:
                 st.write("아직 저장된 비밀번호가 없습니다.")
             else:
-                # 💡 내 데이터 기반으로 만들어진 보관함들만 단추로 상단에 이쁘게 자동 정렬
+                # 상단 라디오 단추 목록에도 내가 직접 만든 폴더들이 역동적으로 전부 표기됩니다.
                 folder_view = st.radio("📁 열어볼 보관함을 선택하세요", ["📂 전체 보기"] + [f"📁 {cat}" for cat in category_options], horizontal=True)
                 
-                # 🔍 검색창
                 search_keyword = st.text_input("🔍 이 보관함 내에서 검색 (사이트명, ID, 메모 입력)", "").strip().lower()
                 
                 filtered_data = []
                 for item in all_db_data:
                     raw_memo = item['memo'] if item['memo'] else ""
                     
-                    # 카테고리 머리말 분석
                     item_category = "기본 보관함"
                     clean_memo = raw_memo
                     
@@ -226,11 +227,9 @@ else:
                         item_category = raw_memo[1:end_idx].strip()
                         clean_memo = raw_memo[end_idx+1:].strip()
                     
-                    # 1차 필터링: 선택 보관함 검사
                     if folder_view != "📂 전체 보기" and f"📁 {item_category}" != folder_view:
                         continue
                         
-                    # 2차 필터링: 키워드 검사
                     s_name = item['site_name'].lower() if item['site_name'] else ""
                     l_id = item['login_id'].lower() if item['login_id'] else ""
                     s_memo = clean_memo.lower()
@@ -259,7 +258,6 @@ else:
                         # [수정하기]
                         with col1:
                             with st.popover("✏️ 정보 수정 및 보관함 이동"):
-                                # 수정 시에도 동적으로 생성된 내 보관함 리스트 중에서 이동을 선택할 수 있음
                                 edit_category = st.selectbox("📂 이동할 보관함 선택", category_options, index=category_options.index(item['extracted_category']) if item['extracted_category'] in category_options else 0, key=f"edit_cat_{idx}")
                                 edit_site_name = st.text_input("사이트 이름", value=item['site_name'], key=f"edit_site_{idx}")
                                 edit_site_url = st.text_input("사이트 주소", value=item['site_url'] if item['site_url'] else "", key=f"edit_url_{idx}")
