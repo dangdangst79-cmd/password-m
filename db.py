@@ -16,7 +16,7 @@ from crypto_util import encrypt_password, decrypt_password
 st.set_page_config(page_title="나만의 비밀번호 관리자", page_icon="🔐", layout="centered")
 
 st.title("🔐 나만의 안전한 비밀번호 관리자")
-st.caption("📂 커스텀 보관함 영구 기억 기능이 보완되어, 새로 만든 폴더가 사라지지 않고 완벽하게 저장됩니다.")
+st.caption("📁 보관함 독립 관리 기능 탑재! 보관함 삭제(안전장치 포함) 및 데이터 일괄 이사가 가능합니다.")
 st.markdown("---")
 
 # Supabase 연결 설정 (스트림릿 클라우드 보안 금고 연동)
@@ -118,12 +118,11 @@ else:
                                 st.sidebar.error(f"오류: {e}")
 
         # -----------------------------------------------------------------
-        # 💡 [핵심 개선] 프로그램 임시 기억 장치(Session State) 초기화
+        # 💡 [임시 기억 장치 연동] 내 보관함 동적 로드
         # -----------------------------------------------------------------
         if "custom_folders" not in st.session_state:
             st.session_state["custom_folders"] = ["기본 보관함"]
 
-        # DB에 이미 저장되어 있는 보관함 이름들을 싹 긁어모아서 기억 장치에 병합
         all_db_data = []
         with httpx.Client(headers=headers) as client:
             res_load = client.get(passwords_url)
@@ -137,42 +136,17 @@ else:
                         if cat_name and cat_name not in st.session_state["custom_folders"]:
                             st.session_state["custom_folders"].append(cat_name)
         
-        # 보관함 정렬
         category_options = sorted(list(set(st.session_state["custom_folders"])))
 
         # -----------------------------------------------------------------
-        # 🔒 [메인 화면] 탭 구성
+        # 🔒 [메인 화면] 3단계 탭 구조 개편 (보관함 독립 분리)
         # -----------------------------------------------------------------
-        tab1, tab2 = st.tabs(["➕ 새 비밀번호 및 보관함 등록", "📋 내 비밀번호 목록"])
+        tab1, tab2, tab3 = st.tabs(["➕ 새 비밀번호 등록", "📁 보관함 관리실", "📋 내 비밀번호 목록"])
 
-        # [TAB 1] 새 비밀번호 등록 및 보관함 관리
+        # [TAB 1] 새 비밀번호 등록 (오직 정보 저장에만 집중)
         with tab1:
-            st.subheader("📁 새 보관함(폴더) 만들기")
-            
-            # Form 외부에서 따로 보관함을 생성하게 하여 세션 상태를 확실하게 고정합니다.
-            col_cat1, col_cat2 = st.columns([3, 1])
-            with col_cat1:
-                new_cat_input = st.text_input("새로 만들 보관함 이름을 적으세요", placeholder="예: 댕댕쓰, 개인소비, 금융", key="new_cat_input_txt")
-            with col_cat2:
-                st.write("<div style='padding-top:28px;'></div>", unsafe_allow_html=True)
-                add_cat_btn = st.button("➕ 보관함 생성")
-                if add_cat_btn:
-                    clean_cat_name = new_cat_input.strip()
-                    if clean_cat_name:
-                        if clean_cat_name not in st.session_state["custom_folders"]:
-                            st.session_state["custom_folders"].append(clean_cat_name)
-                            st.success(f"🎉 '{clean_cat_name}' 보관함이 새로 만들어졌습니다! 아래 선택 창에서 선택해 보세요.")
-                            st.rerun()
-                        else:
-                            st.warning("이미 존재하는 보관함 이름입니다.")
-                    else:
-                        st.error("보관함 이름을 입력해 주세요.")
-
-            st.markdown("---")
-            
-            st.subheader("🔒 계정 정보 추가")
+            st.subheader("🔒 새로운 계정 정보 추가")
             with st.form("add_form", clear_on_submit=True):
-                # 이제 생성한 보관함이 새로고침되어도 완벽하게 보존되어 선택 상자에 나타납니다.
                 selected_category = st.selectbox("📂 보관할 보관함(폴더) 선택", category_options)
                 
                 site_name = st.text_input("사이트 이름 (예: 네이버, 구글, 댕댕쓰 관리자)")
@@ -203,14 +177,118 @@ else:
                                 st.success(f"🎉 '{site_name}' 정보가 [{selected_category}] 보관함에 안전하게 저장되었습니다!")
                                 st.rerun()
 
-        # [TAB 2] 내 비밀번호 목록 조회
+        # [TAB 2] 💡 [신규] 보관함 관리실 (생성, 데이터 이사, 삭제 통합 관리)
         with tab2:
+            st.subheader("🛠️ 보관함(폴더) 생성 및 편집")
+            
+            # 1. 보관함 신규 생성
+            with st.expander("➕ 새로운 보관함 만들기", expanded=True):
+                col_c1, col_c2 = st.columns([3, 1])
+                with col_c1:
+                    new_cat_name = st.text_input("새 보관함 이름 입력", placeholder="예: 댕댕쓰업무, 쇼핑몰, 개인금융", key="manage_new_cat")
+                with col_c2:
+                    st.write("<div style='padding-top:28px;'></div>", unsafe_allow_html=True)
+                    if st.button("보관함 개설", use_container_width=True):
+                        c_name = new_cat_name.strip()
+                        if c_name and c_name not in st.session_state["custom_folders"]:
+                            st.session_state["custom_folders"].append(c_name)
+                            st.success(f"📁 '{c_name}' 보관함이 생성되었습니다!")
+                            st.rerun()
+                        elif c_name in st.session_state["custom_folders"]:
+                            st.warning("이미 있는 이름입니다.")
+            
+            st.markdown("---")
+            
+            # 2. 보관함 일괄 이사 및 데이터 이동 기능
+            with st.expander("🔄 보관함 데이터 통째로 이사하기 (내용물 이동)"):
+                st.caption("선택한 보관함에 든 모든 계정 정보를 다른 보관함으로 원클릭 일괄 이동시킵니다.")
+                col_m1, col_m2 = st.columns(2)
+                with col_m1:
+                    move_from = st.selectbox("출발 보관함 (여기서 꺼내서)", category_options, key="move_from_select")
+                with col_m2:
+                    move_to = st.selectbox("도착 보관함 (여기로 이동)", category_options, key="move_to_select")
+                
+                # 해당 출발 보관함에 몇 개 들어있는지 카운트
+                from_count = 0
+                items_to_move = []
+                for item in all_db_data:
+                    r_memo = item.get('memo', '') if item.get('memo') else ""
+                    if r_memo.startswith(f"[{move_from}]"):
+                        from_count += 1
+                        items_to_move.append(item)
+                
+                st.write(f"📦 현재 '{move_from}' 보관함에 저장된 데이터: **{from_count}개**")
+                
+                if move_from == move_to:
+                    st.info("출발지와 도착지가 같습니다. 다른 보관함을 고르세요.")
+                else:
+                    move_master_auth = st.text_input("인증: 마스터 비밀번호", type="password", key="move_master_auth_input")
+                    if st.button("🚚 이사 시작하기", type="primary"):
+                        if hash_password(move_master_auth) != existing_hash:
+                            st.error("❌ 마스터 비밀번호가 틀렸습니다.")
+                        elif from_count == 0:
+                            st.warning("이동할 데이터가 없습니다.")
+                        else:
+                            with st.spinner("데이터 이사 중..."):
+                                with httpx.Client(headers=headers) as client:
+                                    for item in items_to_move:
+                                        old_memo = item['memo']
+                                        pure_memo = old_memo.replace(f"[{move_from}]", "").strip()
+                                        new_memo = f"[{move_to}] {pure_memo}".strip()
+                                        client.patch(f"{passwords_url}?id=eq.{item['id']}", json={"memo": new_memo})
+                                st.success(f"🎉 '{move_from}'의 데이터 {from_count}개가 '{move_to}' 보관함으로 모두 이사했습니다!")
+                                st.rerun()
+
+            st.markdown("---")
+
+            # 3. 보관함 안전 삭제 기능 (경고 및 재확인 장치 필수 포함)
+            with st.expander("🗑️ 보관함 폐쇄 및 삭제 (안전장치 내장)"):
+                st.warning("⚠️ 보관함을 삭제하면 그 보관함 안에 들어있는 모든 계정 정보도 함께 영구 삭제됩니다!")
+                target_del_cat = st.selectbox("삭제할 보관함 선택", [c for c in category_options if c != "기본 보관함"], key="del_cat_select")
+                
+                # 해당 보관함 소속 데이터 카운트
+                del_count = 0
+                items_to_delete = []
+                for item in all_db_data:
+                    r_memo = item.get('memo', '') if item.get('memo') else ""
+                    if r_memo.startswith(f"[{target_del_cat}]"):
+                        del_count += 1
+                        items_to_delete.append(item)
+                
+                st.error(f"🚨 선택한 [{target_del_cat}] 보관함 삭제 시, 함께 파기되는 데이터: **{del_count}개**")
+                
+                # 팝오버를 사용해 한 번 더 확실하게 물어보기
+                with st.popover("🔥 보관함 영구 삭제 버튼 활성화"):
+                    st.write(f"❗ **진짜 진짜 [{target_del_cat}] 보관함과 내부 데이터 {del_count}개를 전부 삭제하시겠습니까?**")
+                    st.write("이 작업은 되돌릴 수 없으며 Supabase 서버에서 즉시 삭제됩니다.")
+                    
+                    del_master_auth = st.text_input("⚠️ 최종 승인: 마스터 비밀번호 입력", type="password", key="del_cat_master_auth")
+                    confirm_checkbox = st.checkbox("네, 위험을 감수하고 모두 삭제하는 것에 동의합니다.")
+                    
+                    if st.button("💥 예, 최종 삭제합니다", type="primary"):
+                        if hash_password(del_master_auth) != existing_hash:
+                            st.error("❌ 비밀번호가 틀렸습니다.")
+                        elif not confirm_checkbox:
+                            st.warning("위의 동의 체크박스에 체크해 주셔야 삭제가 진행됩니다.")
+                        else:
+                            with st.spinner("서버에서 파기 작업 중..."):
+                                with httpx.Client(headers=headers) as client:
+                                    # 내부 아이템 전부 삭제
+                                    for item in items_to_delete:
+                                        client.delete(f"{passwords_url}?id=eq.{item['id']}")
+                                # 세션 상태 메모리에서도 삭제
+                                if target_del_cat in st.session_state["custom_folders"]:
+                                    st.session_state["custom_folders"].remove(target_del_cat)
+                            st.success(f"🗑️ [{target_del_cat}] 보관함과 내부 데이터 {del_count}개가 완전히 청소되었습니다!")
+                            st.rerun()
+
+        # [TAB 3] 내 비밀번호 목록 조회 (📁 폴더 필터링 및 검색)
+        with tab3:
             st.subheader("보관된 비밀번호 목록")
             
             if not all_db_data:
                 st.write("아직 저장된 비밀번호가 없습니다.")
             else:
-                # 상단 라디오 단추 목록에도 내가 직접 만든 폴더들이 역동적으로 전부 표기됩니다.
                 folder_view = st.radio("📁 열어볼 보관함을 선택하세요", ["📂 전체 보기"] + [f"📁 {cat}" for cat in category_options], horizontal=True)
                 
                 search_keyword = st.text_input("🔍 이 보관함 내에서 검색 (사이트명, ID, 메모 입력)", "").strip().lower()
