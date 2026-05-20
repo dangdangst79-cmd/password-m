@@ -21,7 +21,9 @@ st.markdown("---")
 
 # Supabase 연결 설정 (본인의 정보 유지)
 base_url = "https://tntjmtyomhnlheyskgvi.supabase.co"
-api_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRudGptdHlvbWhubGhleXNrZ3ZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxMjY2NzksImV4cCI6MjA5NDcwMjY3OX0.jDOolJ9cqGSTnbwNq5uAWlmCduKs8_Tzp1uWxuNDlzQ"
+# 기존 코드: api_key = "블라블라내비밀키"
+# 변경할 코드: 스트림릿 비밀 금고에서 키를 꺼내오도록 수정
+api_key = st.secrets["SUPABASE_KEY"]
 
 final_key = api_key.strip()
 headers = {
